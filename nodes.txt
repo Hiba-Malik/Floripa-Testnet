@@ -1,0 +1,43 @@
+[WARNING: INSECURE LOCAL SECRETS - SHOULD NOT BE RUN IN PRODUCTION]
+
+[SECRETS INIT]
+Public key (address) = 0x7f3650b9208eBe6bAA524ACd9a20664caA2704c1
+BLS Public key       = 0x98500b27c2bb35cd42c1bd8747addac3888a00663eef0732a117a28754c8f9dc44f74bb1cc2e81e285bf11030d6abcb1
+Node ID              = 16Uiu2HAm9bi8t77nPbFvvgAxMKdRuZmeYjYgw69XQ5M6RdWbE2Rx
+
+[WARNING: INSECURE LOCAL SECRETS - SHOULD NOT BE RUN IN PRODUCTION]
+
+[SECRETS INIT]
+Public key (address) = 0xcAD10Fd836B6De523f46e4d433D9f11f14278f72
+BLS Public key       = 0x8c1e1bd7dfd143b459b3a46a2bcd6a163ed95f1ea0c7edeba9fd355224d447720b364880d210fc5703607ad88ab98a93
+Node ID              = 16Uiu2HAmU21S4S16encxA7wtP6t37DvsXUpzWZ1dwZMSevyNtvFo
+
+[WARNING: INSECURE LOCAL SECRETS - SHOULD NOT BE RUN IN PRODUCTION]
+
+[SECRETS INIT]
+Public key (address) = 0x3E6cf58e57557d5f38121945e57f520dD4507995
+BLS Public key       = 0x832f05ca716bec1d69eb30f729599256a98f8fa6529892cc3c391e7179397b0777ec239266b9c9c737c96978698db021
+Node ID              = 16Uiu2HAmHsKQyzKvaCgNvuM3wQrdtbauz9ZjAAGkMbuvCZQUrLrb
+
+[WARNING: INSECURE LOCAL SECRETS - SHOULD NOT BE RUN IN PRODUCTION]
+
+[SECRETS INIT]
+Public key (address) = 0x94f30cC7e2Fd5a73fbaAAf1e08368ac11de7A229
+BLS Public key       = 0x8fa48b07bb0278028e5042fba1b290f0a27f0912d17434c011c9ed64e13cade86451c78985ef4e728b887936c9363ede
+Node ID              = 16Uiu2HAmUU4Ck9QjcTMLM4SV6E7sC6crps5k1n9KVqE4HPqPes1Y
+
+---------------------------------------------------------------------------------
+genesis command
+
+./polygon-edge genesis --block-gas-limit 10000000 --epoch-size 10 --proxy-contracts-admin 0x30cfa2dd6b79Bc800B0b8cbF89534Aa4D02D548A --validators "0x7f3650b9208eBe6bAA524ACd9a20664caA2704c1:0x98500b27c2bb35cd42c1bd8747addac3888a00663eef0732a117a28754c8f9dc44f74bb1cc2e81e285bf11030d6abcb1" --validators "0xcAD10Fd836B6De523f46e4d433D9f11f14278f72:0x8c1e1bd7dfd143b459b3a46a2bcd6a163ed95f1ea0c7edeba9fd355224d447720b364880d210fc5703607ad88ab98a93" --bootnode /ip4/127.0.0.1/tcp/31301/p2p/16Uiu2HAm9bi8t77nPbFvvgAxMKdRuZmeYjYgw69XQ5M6RdWbE2Rx --bootnode /ip4/127.0.0.1/tcp/31302/p2p/16Uiu2HAmU21S4S16encxA7wtP6t37DvsXUpzWZ1dwZMSevyNtvFo --bootnode /ip4/127.0.0.1/tcp/31303/p2p/16Uiu2HAmHsKQyzKvaCgNvuM3wQrdtbauz9ZjAAGkMbuvCZQUrLrb --bootnode /ip4/127.0.0.1/tcp/31304/p2p/16Uiu2HAmUU4Ck9QjcTMLM4SV6E7sC6crps5k1n9KVqE4HPqPes1Y --consensus ibft --pos --reward-wallet 0x30cfa2dd6b79Bc800B0b8cbF89534Aa4D02D548A:1000000 --chain-id 88001   --name Floripa​   --block-gas-limit 10000000   --block-time 1s   --native-token-config "Azore Testnet:AZE-t:18:true:0x30cfa2dd6b79Bc800B0b8cbF89534Aa4D02D548A" --premine 0x0000000000000000000000000000000000000000:0   --premine 0x30cfa2dd6b79Bc800B0b8cbF89534Aa4D02D548A:1000000000000000000000000000
+
+-----------------------------------------------------------------------------------------
+start nodes:
+
+./polygon-edge server --data-dir ./node-1 --chain genesis.json --grpc-address :5101 --libp2p :31301 --jsonrpc :11001 --seal
+
+./polygon-edge server --data-dir ./node-2 --chain genesis.json --grpc-address :5102 --libp2p :31302 --jsonrpc :11002 --seal
+
+./polygon-edge server --data-dir ./node-3 --chain genesis.json --grpc-address :5103 --libp2p :31303 --jsonrpc :11003 --seal
+
+./polygon-edge server --data-dir ./node-4 --chain genesis.json --grpc-address :5104 --libp2p :31304 --jsonrpc :11004 --seal

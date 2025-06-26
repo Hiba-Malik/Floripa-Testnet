@@ -1,0 +1,280 @@
+package staking
+
+import (
+	"fmt"
+	"math/big"
+
+	"github.com/0xPolygon/polygon-edge/chain"
+	"github.com/0xPolygon/polygon-edge/helper/common"
+	"github.com/0xPolygon/polygon-edge/helper/hex"
+	"github.com/0xPolygon/polygon-edge/helper/keccak"
+	"github.com/0xPolygon/polygon-edge/types"
+	"github.com/0xPolygon/polygon-edge/validators"
+)
+
+var (
+	MinValidatorCount = uint64(1)
+	MaxValidatorCount = common.MaxSafeJSInt
+)
+
+// getAddressMapping returns the key for the SC storage mapping (address => something)
+//
+// More information:
+// https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html
+func getAddressMapping(address types.Address, slot int64) []byte {
+	bigSlot := big.NewInt(slot)
+
+	finalSlice := append(
+		common.PadLeftOrTrim(address.Bytes(), 32),
+		common.PadLeftOrTrim(bigSlot.Bytes(), 32)...,
+	)
+
+	return keccak.Keccak256(nil, finalSlice)
+}
+
+// getIndexWithOffset is a helper method for adding an offset to the already found keccak hash
+func getIndexWithOffset(keccakHash []byte, offset uint64) []byte {
+	bigOffset := big.NewInt(int64(offset))
+	bigKeccak := big.NewInt(0).SetBytes(keccakHash)
+
+	bigKeccak.Add(bigKeccak, bigOffset)
+
+	return bigKeccak.Bytes()
+}
+
+// getStorageIndexes is a helper function for getting the correct indexes
+// of the storage slots which need to be modified during bootstrap.
+//
+// It is SC dependant, and based on the SC located at:
+// https://github.com/0xPolygon/staking-contracts/
+func getStorageIndexes(validator validators.Validator, index int) *StorageIndexes {
+	storageIndexes := &StorageIndexes{}
+	address := validator.Addr()
+
+	// Get the indexes for the mappings
+	// The index for the mapping is retrieved with:
+	// keccak(address . slot)
+	// . stands for concatenation (basically appending the bytes)
+	storageIndexes.AddressToIsValidatorIndex = getAddressMapping(
+		address,
+		addressToIsValidatorSlot,
+	)
+
+	storageIndexes.AddressToStakedAmountIndex = getAddressMapping(
+		address,
+		addressToStakedAmountSlot,
+	)
+
+	storageIndexes.AddressToValidatorIndexIndex = getAddressMapping(
+		address,
+		addressToValidatorIndexSlot,
+	)
+
+	storageIndexes.ValidatorBLSPublicKeyIndex = getAddressMapping(
+		address,
+		addressToBLSPublicKeySlot,
+	)
+
+	// Index for array types is calculated as keccak(slot) + index
+	// The slot for the dynamic arrays that's put in the keccak needs to be in hex form (padded 64 chars)
+	storageIndexes.ValidatorsIndex = getIndexWithOffset(
+		keccak.Keccak256(nil, common.PadLeftOrTrim(big.NewInt(validatorsSlot).Bytes(), 32)),
+		uint64(index),
+	)
+
+	return storageIndexes
+}
+
+// setBytesToStorage sets bytes data into storage map from specified base index
+func setBytesToStorage(
+	storageMap map[types.Hash]types.Hash,
+	baseIndexBytes []byte,
+	data []byte,
+) {
+	dataLen := len(data)
+	baseIndex := types.BytesToHash(baseIndexBytes)
+
+	if dataLen <= 31 {
+		bytes := types.Hash{}
+
+		copy(bytes[:len(data)], data)
+
+		// Set 2*Size at the first byte
+		bytes[len(bytes)-1] = byte(dataLen * 2)
+
+		storageMap[baseIndex] = bytes
+
+		return
+	}
+
+	// Set size at the base index
+	baseSlot := types.Hash{}
+	baseSlot[31] = byte(2*dataLen + 1)
+	storageMap[baseIndex] = baseSlot
+
+	zeroIndex := keccak.Keccak256(nil, baseIndexBytes)
+	numBytesInSlot := 256 / 8
+
+	for i := 0; i < dataLen; i++ {
+		offset := i / numBytesInSlot
+
+		slotIndex := types.BytesToHash(getIndexWithOffset(zeroIndex, uint64(offset)))
+		byteIndex := i % numBytesInSlot
+
+		slot := storageMap[slotIndex]
+		slot[byteIndex] = data[i]
+
+		storageMap[slotIndex] = slot
+	}
+}
+
+// PredeployParams contains the values used to predeploy the PoS staking contract
+type PredeployParams struct {
+	MinValidatorCount uint64
+	MaxValidatorCount uint64
+	OwnerAddress      string
+}
+
+// StorageIndexes is a wrapper for different storage indexes that
+// need to be modified
+type StorageIndexes struct {
+	ValidatorsIndex              []byte // []address
+	ValidatorBLSPublicKeyIndex   []byte // mapping(address => byte[])
+	AddressToIsValidatorIndex    []byte // mapping(address => bool)
+	AddressToStakedAmountIndex   []byte // mapping(address => uint256)
+	AddressToValidatorIndexIndex []byte // mapping(address => uint256)
+}
+
+// Slot definitions for SC storage - CORRECTED to match actual Solidity contract
+var (
+	ownerSlot                   = int64(0)  // Slot 0: _owner (from Ownable)
+	validatorThresholdSlot      = int64(1)  // Slot 1: validatorThreshold
+	minimumStakeSlot            = int64(2)  // Slot 2: minimumStake
+	validatorsSlot              = int64(3)  // Slot 3: _validators (address[] dynamic array)
+	addressToIsValidatorSlot    = int64(4)  // Slot 4: _addressToIsValidator (mapping)
+	addressToStakedAmountSlot   = int64(5)  // Slot 5: _addressToStakedAmount (mapping)
+	addressToValidatorIndexSlot = int64(6)  // Slot 6: _addressToValidatorIndex (mapping)
+	stakedAmountSlot            = int64(7)  // Slot 7: _stakedAmount
+	minNumValidatorSlot         = int64(8)  // Slot 8: _minimumNumValidators
+	maxNumValidatorSlot         = int64(9)  // Slot 9: _maximumNumValidators
+	addressToBLSPublicKeySlot   = int64(10) // Slot 10: _addressToBLSPublicKey (mapping)
+)
+
+const (
+	DefaultStakedBalance = "0x8AC7230489E80000" // 10 ETH
+	//nolint: lll
+	StakingSCBytecode = "0x6080604052600436106101665760003560e01c8063715018a6116100d1578063d94c111b1161008a578063ec5ffac211610064578063ec5ffac21461041c578063f2fde38b14610432578063f90ecacc14610452578063facd743b1461047257600080fd5b8063d94c111b146103d1578063e387a7ed146103f1578063e804fbf61461040757600080fd5b8063715018a61461030f5780637dceceb8146103245780638da5cb5b14610351578063af6da36e14610383578063c795c07714610399578063ca1e7819146103af57600080fd5b80633a4b66f1116101235780633a4b66f11461026d5780633c561f04146102755780634c41e880146102975780634fd101d7146102b757806351a9ab32146102cd578063714ff425146102fa57600080fd5b806302b751991461016b578063065ae171146101ab57806316827b1b146101eb5780632367f6b51461020d5780632def662014610243578063373d613214610258575b600080fd5b34801561017757600080fd5b50610198610186366004610f65565b60066020526000908152604090205481565b6040519081526020015b60405180910390f35b3480156101b757600080fd5b506101db6101c6366004610f65565b60046020526000908152604090205460ff1681565b60405190151581526020016101a2565b3480156101f757600080fd5b5061020b610206366004611046565b6104ab565b005b34801561021957600080fd5b50610198610228366004610f65565b6001600160a01b031660009081526005602052604090205490565b34801561024f57600080fd5b5061020b6104b8565b34801561026457600080fd5b50600754610198565b61020b610572565b34801561028157600080fd5b5061028a6105c9565b6040516101a291906110f9565b3480156102a357600080fd5b5061020b6102b2366004611046565b610727565b3480156102c357600080fd5b5061019860015481565b3480156102d957600080fd5b506102ed6102e8366004610f65565b610774565b6040516101a2919061115b565b34801561030657600080fd5b50600854610198565b34801561031b57600080fd5b5061020b61080e565b34801561033057600080fd5b5061019861033f366004610f65565b60056020526000908152604090205481565b34801561035d57600080fd5b506000546001600160a01b03165b6040516001600160a01b0390911681526020016101a2565b34801561038f57600080fd5b5061019860095481565b3480156103a557600080fd5b5061019860085481565b3480156103bb57600080fd5b506103c4610820565b6040516101a291906110ac565b3480156103dd57600080fd5b5061020b6103ec366004610f95565b610882565b3480156103fd57600080fd5b5061019860075481565b34801561041357600080fd5b50600954610198565b34801561042857600080fd5b5061019860025481565b34801561043e57600080fd5b5061020b61044d366004610f65565b6108e7565b34801561045e57600080fd5b5061036b61046d366004611046565b610960565b34801561047e57600080fd5b506101db61048d366004610f65565b6001600160a01b031660009081526004602052604090205460ff1690565b6104b361098a565b600155565b333b1561050c5760405162461bcd60e51b815260206004820152601a60248201527f4f6e6c7920454f412063616e2063616c6c2066756e6374696f6e00000000000060448201526064015b60405180910390fd5b336000908152600560205260409020546105685760405162461bcd60e51b815260206004820152601d60248201527f4f6e6c79207374616b65722063616e2063616c6c2066756e6374696f6e0000006044820152606401610503565b6105706109e4565b565b333b156105c15760405162461bcd60e51b815260206004820152601a60248201527f4f6e6c7920454f412063616e2063616c6c2066756e6374696f6e0000000000006044820152606401610503565b610570610a92565b60035460609060009067ffffffffffffffff8111156105ea576105ea61122f565b60405190808252806020026020018201604052801561061d57816020015b60608152602001906001900390816106085790505b50905060005b60035481101561072157600a60006003838154811061064457610644611219565b60009182526020808320909101546001600160a01b03168352820192909252604001902080546106739061119d565b80601f016020809104026020016040519081016040528092919081815260200182805461069f9061119d565b80156106ec5780601f106106c1576101008083540402835291602001916106ec565b820191906000526020600020905b8154815290600101906020018083116106cf57829003601f168201915b505050505082828151811061070357610703611219565b60200260200101819052508080610719906111d2565b915050610623565b50919050565b61072f61098a565b600280549082905560408051828152602081018490527fd67ed534faf3e0dcda08ac6043ec96dcf9b6ebec56055fd14bd0cb40a27c0e49910160405180910390a15050565b600a602052600090815260409020805461078d9061119d565b80601f01602080910402602001604051908101604052809291908181526020018280546107b99061119d565b80156108065780601f106107db57610100808354040283529160200191610806565b820191906000526020600020905b8154815290600101906020018083116107e957829003601f168201915b505050505081565b61081661098a565b6105706000610b6e565b6060600380548060200260200160405190810160405280929190818152602001828054801561087857602002820191906000526020600020905b81546001600160a01b0316815260019091019060200180831161085a575b5050505050905090565b336000908152600a6020908152604090912082516108a292840190610ecc565b50336001600160a01b03167f472da4d064218fa97032725fbcff922201fa643fed0765b5ffe0ceef63d7b3dc826040516108dc919061115b565b60405180910390a250565b6108ef61098a565b6001600160a01b0381166109545760405162461bcd60e51b815260206004820152602660248201527f4f776e61626c653a206e6577206f776e657220697320746865207a65726f206160448201526564647265737360d01b6064820152608401610503565b61095d81610b6e565b50565b6003818154811061097057600080fd5b6000918252602090912001546001600160a01b0316905081565b6000546001600160a01b031633146105705760405162461bcd60e51b815260206004820181905260248201527f4f776e61626c653a2063616c6c6572206973206e6f7420746865206f776e65726044820152606401610503565b3360009081526005602052604081208054908290556007805491928392610a0c908490611186565b90915550503360009081526004602052604090205460ff1615610a3257610a3233610bbe565b604051339082156108fc029083906000818181858888f19350505050158015610a5f573d6000803e3d6000fd5b5060405181815233907f0f5bb82176feb1b5e747e28471aa92156a04d9f3ab9f45f28e2d704232b93f75906020016108dc565b600254341015610ae45760405162461bcd60e51b815260206004820152601f60248201527f42656c6f77206d696e696d756d207374616b6520726571756972656d656e74006044820152606401610503565b3460076000828254610af6919061116e565b90915550503360009081526005602052604081208054349290610b1a90849061116e565b90915550610b29905033610dad565b15610b3757610b3733610df6565b60405134815233907f9e71bc8eea02a63969f509818f2dafb9254532904319f9dbda79b67bd34a5f3d9060200160405180910390a2565b600080546001600160a01b038381166001600160a01b0319831681178455604051919092169283917f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e09190a35050565b60085460035411610c39576040805162461bcd60e51b81526020600482015260248101919091527f56616c696461746f72732063616e2774206265206c657373207468616e20746860448201527f65206d696e696d756d2072657175697265642076616c696461746f72206e756d6064820152608401610503565b6003546001600160a01b03821660009081526006602052604090205410610c975760405162461bcd60e51b8152602060048201526012602482015271696e646578206f7574206f662072616e676560701b6044820152606401610503565b6001600160a01b038116600090815260066020526040812054600354909190610cc290600190611186565b9050808214610d4a57600060038281548110610ce057610ce0611219565b600091825260209091200154600380546001600160a01b039092169250829185908110610d0f57610d0f611219565b600091825260208083209190910180546001600160a01b0319166001600160a01b039485161790559290911681526006909152604090208290555b6001600160a01b0383166000908152600460209081526040808320805460ff1916905560069091528120556003805480610d8657610d86611203565b600082815260209020810160001990810180546001600160a01b0319169055019055505050565b6001600160a01b03811660009081526004602052604081205460ff16158015610df057506001546001600160a01b03831660009081526005602052604090205410155b92915050565b60095460035410610e595760405162461bcd60e51b815260206004820152602760248201527f56616c696461746f72207365742068617320726561636865642066756c6c20636044820152666170616369747960c81b6064820152608401610503565b6001600160a01b03166000818152600460209081526040808320805460ff19166001908117909155600380546006909452918420839055820181559091527fc2575a0e9e593c00f959f8c92f12db2869c3395a3b0502d05e2516446f71f85b0180546001600160a01b0319169091179055565b828054610ed89061119d565b90600052602060002090601f016020900481019282610efa5760008555610f40565b82601f10610f1357805160ff1916838001178555610f40565b82800160010185558215610f40579182015b82811115610f40578251825591602001919060010190610f25565b50610f4c929150610f50565b5090565b5b80821115610f4c5760008155600101610f51565b600060208284031215610f7757600080fd5b81356001600160a01b0381168114610f8e57600080fd5b9392505050565b600060208284031215610fa757600080fd5b813567ffffffffffffffff80821115610fbf57600080fd5b818401915084601f830112610fd357600080fd5b813581811115610fe557610fe561122f565b604051601f8201601f19908116603f0116810190838211818310171561100d5761100d61122f565b8160405282815287602084870101111561102657600080fd5b826020860160208301376000928101602001929092525095945050505050565b60006020828403121561105857600080fd5b5035919050565b6000815180845260005b8181101561108557602081850181015186830182015201611069565b81811115611097576000602083870101525b50601f01601f19169290920160200192915050565b6020808252825182820181905260009190848201906040850190845b818110156110ed5783516001600160a01b0316835292840192918401916001016110c8565b50909695505050505050565b6000602080830181845280855180835260408601915060408160051b870101925083870160005b8281101561114e57603f1988860301845261113c85835161105f565b94509285019290850190600101611120565b5092979650505050505050565b602081526000610f8e602083018461105f565b60008219821115611181576111816111ed565b500190565b600082821015611198576111986111ed565b500390565b600181811c908216806111b157607f821691505b6020821081141561072157634e487b7160e01b600052602260045260246000fd5b60006000198214156111e6576111e66111ed565b5060010190565b634e487b7160e01b600052601160045260246000fd5b634e487b7160e01b600052603160045260246000fd5b634e487b7160e01b600052603260045260246000fd5b634e487b7160e01b600052604160045260246000fdfea26469706673582212202a6b94f98fb82175efa02f1298227ab539b1d56cb6afa868f9e6aad3b54e31f764736f6c63430008070033"
+)
+
+// PredeployStakingSC is a helper method for setting up the staking smart contract account,
+// using the passed in validators as pre-staked validators
+func PredeployStakingSC(
+	vals validators.Validators,
+	params PredeployParams,
+) (*chain.GenesisAccount, error) {
+	// Parse owner address
+	ownerAddr := types.StringToAddress(params.OwnerAddress)
+
+	fmt.Printf("[DEBUG] minNumValidators: %d\n", params.MinValidatorCount)
+	fmt.Printf("[DEBUG] maxNumValidators: %d\n", params.MaxValidatorCount)
+	fmt.Printf("[DEBUG] owner: %s\n", params.OwnerAddress)
+
+	// Use the deployedBytecode (runtime code) instead of full bytecode with constructor
+	// This avoids "execution reverted" during genesis as we set storage manually
+	scHex, _ := hex.DecodeHex(StakingSCBytecode)
+
+	stakingAccount := &chain.GenesisAccount{
+		Code: scHex,
+	}
+
+	// Parse the default staked balance value into *big.Int
+	val := DefaultStakedBalance
+	bigDefaultStakedBalance, err := common.ParseUint256orHex(&val)
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate DefaultStatkedBalance, %w", err)
+	}
+
+	// Generate the empty account storage map
+	storageMap := make(map[types.Hash]types.Hash)
+	bigTrueValue := big.NewInt(1)
+	stakedAmount := big.NewInt(0)
+	valsLen := big.NewInt(0)
+
+	if vals != nil {
+		valsLen = big.NewInt(int64(vals.Len()))
+
+		for idx := 0; idx < vals.Len(); idx++ {
+			validator := vals.At(uint64(idx))
+
+			// Update the total staked amount
+			stakedAmount = stakedAmount.Add(stakedAmount, bigDefaultStakedBalance)
+
+			// Get the storage indexes
+			storageIndexes := getStorageIndexes(validator, idx)
+
+			// Set the value for the validators array
+			storageMap[types.BytesToHash(storageIndexes.ValidatorsIndex)] =
+				types.BytesToHash(
+					validator.Addr().Bytes(),
+				)
+
+			if blsValidator, ok := validator.(*validators.BLSValidator); ok {
+				setBytesToStorage(
+					storageMap,
+					storageIndexes.ValidatorBLSPublicKeyIndex,
+					blsValidator.BLSPublicKey,
+				)
+			}
+
+			// Set the value for the address -> validator array index mapping
+			storageMap[types.BytesToHash(storageIndexes.AddressToIsValidatorIndex)] =
+				types.BytesToHash(bigTrueValue.Bytes())
+
+			// Set the value for the address -> staked amount mapping
+			storageMap[types.BytesToHash(storageIndexes.AddressToStakedAmountIndex)] =
+				types.StringToHash(hex.EncodeBig(bigDefaultStakedBalance))
+
+			// Set the value for the address -> validator index mapping
+			storageMap[types.BytesToHash(storageIndexes.AddressToValidatorIndexIndex)] =
+				types.StringToHash(hex.EncodeUint64(uint64(idx)))
+		}
+	}
+
+	// Set the value for the total staked amount
+	storageMap[types.BytesToHash(big.NewInt(stakedAmountSlot).Bytes())] =
+		types.BytesToHash(stakedAmount.Bytes())
+
+	// Set the value for the size of the validators array
+	storageMap[types.BytesToHash(big.NewInt(validatorsSlot).Bytes())] =
+		types.BytesToHash(valsLen.Bytes())
+
+	// Set the min and max validator counts manually since we're not using constructor
+	storageMap[types.BytesToHash(big.NewInt(minNumValidatorSlot).Bytes())] =
+		types.BytesToHash(big.NewInt(int64(params.MinValidatorCount)).Bytes())
+	storageMap[types.BytesToHash(big.NewInt(maxNumValidatorSlot).Bytes())] =
+		types.BytesToHash(big.NewInt(int64(params.MaxValidatorCount)).Bytes())
+
+	// Set the owner address (slot 0 in Ownable contract)
+	storageMap[types.BytesToHash(big.NewInt(ownerSlot).Bytes())] =
+		types.BytesToHash(ownerAddr.Bytes())
+
+	// Set the default values for validatorThreshold and minimumStake
+	// Default validatorThreshold = 1000 ether (from Solidity contract)
+	validatorThreshold := new(big.Int).Mul(big.NewInt(1000), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	storageMap[types.BytesToHash(big.NewInt(validatorThresholdSlot).Bytes())] =
+		types.BytesToHash(validatorThreshold.Bytes())
+
+	// Default minimumStake = 1000 ether (from Solidity contract)
+	minimumStake := new(big.Int).Mul(big.NewInt(1000), new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil))
+	storageMap[types.BytesToHash(big.NewInt(minimumStakeSlot).Bytes())] =
+		types.BytesToHash(minimumStake.Bytes())
+
+	// Save the storage map
+	stakingAccount.Storage = storageMap
+
+	// Set the Staking SC balance to numValidators * defaultStakedBalance
+	stakingAccount.Balance = stakedAmount
+
+	return stakingAccount, nil
+}

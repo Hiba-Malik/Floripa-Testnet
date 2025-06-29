@@ -543,14 +543,46 @@ func (t *Transition) getOwnerAddressFromEngine() types.Address {
 	// Try to get the owner address from the IBFT engine configuration
 	if t.executor != nil && t.executor.config != nil {
 		if engineConfig, ok := t.executor.config.Engine["ibft"].(map[string]interface{}); ok {
+			// Method 1: Try direct ownerAddress (for new genesis files)
 			if ownerAddress, ok := engineConfig["ownerAddress"].(string); ok && ownerAddress != "" {
-				return types.StringToAddress(ownerAddress)
+				ownerAddr := types.StringToAddress(ownerAddress)
+				fmt.Printf("[OWNER ADDR] Using owner from direct engine config: %s\n", ownerAddr.String())
+				return ownerAddr
 			}
+
+			// Method 2: Try nativeTokenConfig.owner (for existing genesis files)
+			if nativeTokenConfig, ok := engineConfig["nativeTokenConfig"].(map[string]interface{}); ok {
+				if owner, ok := nativeTokenConfig["owner"].(string); ok && owner != "" {
+					ownerAddr := types.StringToAddress(owner)
+					fmt.Printf("[OWNER ADDR] Using owner from nativeTokenConfig: %s\n", ownerAddr.String())
+					return ownerAddr
+				}
+			}
+
+			fmt.Printf("[OWNER ADDR] Debug - Engine config keys: %v\n", getMapKeys(engineConfig))
+			if nativeTokenConfig, ok := engineConfig["nativeTokenConfig"].(map[string]interface{}); ok {
+				fmt.Printf("[OWNER ADDR] Debug - NativeTokenConfig keys: %v\n", getMapKeys(nativeTokenConfig))
+			}
+		} else {
+			fmt.Printf("[OWNER ADDR] Debug - No IBFT engine config found\n")
 		}
+	} else {
+		fmt.Printf("[OWNER ADDR] Debug - No executor or config found\n")
 	}
 
-	// Fallback to hardcoded address if not found in configuration
-	return types.StringToAddress("0x0D269CA3878fb86d4Fe709f9D6ccB55a12223c2d")
+	// Fallback - use the correct owner address from genesis
+	defaultOwner := types.StringToAddress("0x0D269CA3878fb86d4Fe709f9D6ccB55a12223c2d")
+	fmt.Printf("[OWNER ADDR] ⚠️  Using fallback owner address: %s (config extraction failed)\n", defaultOwner.String())
+	return defaultOwner
+}
+
+// Helper function to get map keys for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // Enhanced apply method with native token minting

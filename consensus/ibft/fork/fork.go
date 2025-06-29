@@ -117,9 +117,11 @@ func GetIBFTForks(ibftConfig map[string]interface{}) (IBFTForks, error) {
 			}
 		}
 
-		// Extract owner address from nativeTokenConfig
+		// Extract owner address from engine config (preferred) or nativeTokenConfig (fallback)
 		ownerAddress := ""
-		if nativeTokenConfig, ok := ibftConfig["nativeTokenConfig"].(map[string]interface{}); ok {
+		if owner, ok := ibftConfig[KeyOwnerAddress].(string); ok && owner != "" {
+			ownerAddress = owner
+		} else if nativeTokenConfig, ok := ibftConfig["nativeTokenConfig"].(map[string]interface{}); ok {
 			if owner, ok := nativeTokenConfig["owner"].(string); ok {
 				ownerAddress = owner
 			}

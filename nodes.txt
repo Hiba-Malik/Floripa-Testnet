@@ -34,10 +34,10 @@ genesis command
 -----------------------------------------------------------------------------------------
 start nodes:
 
-./polygon-edge server --data-dir ./node-1 --chain genesis.json --grpc-address :5101 --libp2p :31301 --jsonrpc :11001 --seal
+./polygon-edge server --data-dir ./node-1 --chain genesis.json --grpc-address :5101 --libp2p :31301 --jsonrpc :11001 --seal --price-limit 1000000000
 
-./polygon-edge server --data-dir ./node-2 --chain genesis.json --grpc-address :5102 --libp2p :31302 --jsonrpc :11002 --seal
+./polygon-edge server --data-dir ./node-2 --chain genesis.json --grpc-address :5102 --libp2p :31302 --jsonrpc :11002 --seal --price-limit 1000000000
 
-./polygon-edge server --data-dir ./node-3 --chain genesis.json --grpc-address :5103 --libp2p :31303 --jsonrpc :11003 --seal
+./polygon-edge server --data-dir ./node-3 --chain genesis.json --grpc-address :5103 --libp2p :31303 --jsonrpc :11003 --seal --price-limit 1000000000
 
-./polygon-edge server --data-dir ./node-4 --chain genesis.json --grpc-address :5104 --libp2p :31304 --jsonrpc :11004 --seal
+./polygon-edge server --data-dir ./node-4 --chain genesis.json --grpc-address :5104 --libp2p :31304 --jsonrpc :11004 --seal --price-limit 1000000000

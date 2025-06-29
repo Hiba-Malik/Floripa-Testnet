@@ -371,13 +371,24 @@ func (p *genesisParams) initConsensusEngineConfig() {
 }
 
 func (p *genesisParams) initIBFTEngineMap(ibftType fork.IBFTType) {
+	engineConfig := map[string]interface{}{
+		fork.KeyType:          ibftType,
+		fork.KeyValidatorType: p.ibftValidatorType,
+		fork.KeyBlockTime:     p.blockTime,
+		ibft.KeyEpochSize:     p.epochSize,
+	}
+
+	// Add owner address to engine config if native token config is available
+	if p.nativeTokenConfig != nil && p.nativeTokenConfig.Owner != types.ZeroAddress {
+		ownerAddr := p.nativeTokenConfig.Owner.String()
+		engineConfig[fork.KeyOwnerAddress] = ownerAddr
+		fmt.Printf("[GENESIS] Setting owner address in IBFT engine config: %s\n", ownerAddr)
+	} else {
+		fmt.Printf("[GENESIS] ⚠️  No owner address available for IBFT engine config\n")
+	}
+
 	p.consensusEngineConfig = map[string]interface{}{
-		string(server.IBFTConsensus): map[string]interface{}{
-			fork.KeyType:          ibftType,
-			fork.KeyValidatorType: p.ibftValidatorType,
-			fork.KeyBlockTime:     p.blockTime,
-			ibft.KeyEpochSize:     p.epochSize,
-		},
+		string(server.IBFTConsensus): engineConfig,
 	}
 }
 

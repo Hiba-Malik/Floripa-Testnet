@@ -39,7 +39,7 @@
                 },
                 "balance": "0x1158e460913d00000"
             },
-            "0x30cfa2dd6b79Bc800B0b8cbF89534Aa4D02D548A": {
+            "0xee2cf0F9043d735F0430fe5F14D2f3c09D8B2738": {
                 "balance": "0x33b2e3c9fd0803ce8000000"
             }
         },
@@ -98,7 +98,7 @@
                     "symbol": "AZE-t",
                     "decimals": 18,
                     "isMintable": true,
-                    "owner": "0x30cfa2dd6b79Bc800B0b8cbF89534Aa4D02D548A"
+                    "owner": "0xee2cf0F9043d735F0430fe5F14D2f3c09D8B2738"
                 }
             }
         },
